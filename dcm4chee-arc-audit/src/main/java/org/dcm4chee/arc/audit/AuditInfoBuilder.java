@@ -137,9 +137,17 @@ class AuditInfoBuilder {
             return this;
         }
         Builder pIDAndName(Attributes attr, ArchiveDeviceExtension arcDev) {
-            String[] val = toPIDAndName(attr, arcDev);
-            pID = val[0];
-            pName = val[1];
+            IDWithIssuer pidWithIssuer = IDWithIssuer.pidOf(attr);
+            pID = pidWithIssuer == null ? arcDev.auditUnknownPatientID() : toPID(pidWithIssuer, arcDev);
+            pName = toPatName(attr.getString(Tag.PatientName), arcDev);
+            return this;
+        }
+        Builder patID(String pid, ArchiveDeviceExtension arcDev) {
+            pID = pid == null ? arcDev.auditUnknownPatientID() : toPID(new IDWithIssuer(pid), arcDev);
+            return this;
+        }
+        Builder patName(String patName, ArchiveDeviceExtension arcDev) {
+            pName = toPatName(patName, arcDev);
             return this;
         }
         Builder studyUIDAccNumDate(Attributes attrs) {
@@ -270,23 +278,16 @@ class AuditInfoBuilder {
         errorCode = builder.errorCode;
     }
 
-    private static String[] toPIDAndName(Attributes attr, ArchiveDeviceExtension arcDev) {
-        ShowPatientInfo showPatientInfo = arcDev.showPatientInfoInAuditLog();
-        String[] pInfo = new String[2];
-        pInfo[0] = arcDev.auditUnknownPatientID();
-        if (attr != null) {
-            IDWithIssuer pidWithIssuer = IDWithIssuer.pidOf(attr);
-            String pName = attr.getString(Tag.PatientName);
-            pInfo[0] = pidWithIssuer != null
-                    ? showPatientInfo == ShowPatientInfo.HASH_NAME_AND_ID
-                    ? String.valueOf(pidWithIssuer.hashCode())
-                    : pidWithIssuer.toString()
-                    : arcDev.auditUnknownPatientID();
-            pInfo[1] = pName != null && showPatientInfo != ShowPatientInfo.PLAIN_TEXT
-                    ? String.valueOf(pName.hashCode())
-                    : pName;
-        }
-        return pInfo;
+    private static String toPID(IDWithIssuer pidWithIssuer, ArchiveDeviceExtension arcDev) {
+        return arcDev.showPatientInfoInAuditLog() == ShowPatientInfo.HASH_NAME_AND_ID
+                ? String.valueOf(pidWithIssuer.hashCode())
+                : pidWithIssuer.toString();
+    }
+
+    private static String toPatName(String pName, ArchiveDeviceExtension arcDev) {
+        return pName != null && arcDev.showPatientInfoInAuditLog() != ShowPatientInfo.PLAIN_TEXT
+                ? String.valueOf(pName.hashCode())
+                : pName;
     }
 
     private static String errorCodeAsString(int errorCode) {

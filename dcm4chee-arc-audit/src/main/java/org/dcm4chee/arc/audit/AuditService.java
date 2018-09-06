@@ -56,6 +56,7 @@ import org.dcm4che3.net.hl7.UnparsedHL7Message;
 import org.dcm4che3.net.service.DicomServiceException;
 import org.dcm4che3.util.ByteUtils;
 import org.dcm4che3.util.StringUtils;
+import org.dcm4chee.arc.HL7ConnectionEvent;
 import org.dcm4chee.arc.event.ArchiveServiceEvent;
 import org.dcm4chee.arc.ConnectionEvent;
 import org.dcm4chee.arc.conf.RejectionNote;
@@ -64,6 +65,7 @@ import org.dcm4chee.arc.entity.QueueMessage;
 import org.dcm4chee.arc.event.BulkQueueMessageEvent;
 import org.dcm4chee.arc.event.QueueMessageEvent;
 import org.dcm4chee.arc.event.SoftwareConfiguration;
+import org.dcm4chee.arc.hl7.ArchiveHL7Message;
 import org.dcm4chee.arc.keycloak.KeycloakContext;
 import org.dcm4chee.arc.conf.ArchiveDeviceExtension;
 import org.dcm4chee.arc.delete.StudyDeleteContext;
@@ -88,6 +90,7 @@ import javax.enterprise.context.ApplicationScoped;
 import javax.inject.Inject;
 import javax.servlet.http.HttpServletRequest;
 import java.io.*;
+import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -1220,28 +1223,88 @@ public class AuditService {
         return activeParticipantBuilder;
     }
 
+    void spoolHL7Message(HL7ConnectionEvent hl7ConnectionEvent) {
+        UnparsedHL7Message hl7ResponseMessage = hl7ConnectionEvent.getHL7ResponseMessage();
+        Connection connection = hl7ConnectionEvent.getConnection();
+        Exception exception = hl7ConnectionEvent.getException();
+        UnparsedHL7Message hl7Message = hl7ConnectionEvent.getHL7Message();
+        HL7Segment msh = hl7Message.msh();
+        String sendingApplicationWithFacility = msh.getSendingApplicationWithFacility();
+        String receivingApplicationWithFacility = msh.getReceivingApplicationWithFacility();
+        String charset = msh.getField(17, "ASCII");
+        String messageType = msh.getMessageType();
+        HL7Message msg = HL7Message.parse(hl7Message.data(), charset);
+
+        HL7Segment pid = msg.getSegment("PID");
+        HL7Segment mrg = msg.getSegment("MRG");
+
+        if (hl7ResponseMessage == null)
+            return;
+
+        HL7ConnectionEvent.Type type = hl7ConnectionEvent.getType();
+        AuditServiceUtils.EventType eventType = AuditServiceUtils.EventType.PAT___READ;
+        if (type == HL7ConnectionEvent.Type.MESSAGE_PROCESSED) {
+            if (hl7ResponseMessage instanceof ArchiveHL7Message) {
+                ArchiveHL7Message archiveHL7Message = (ArchiveHL7Message) hl7ResponseMessage;
+                eventType = AuditServiceUtils.EventType.forHL7(archiveHL7Message.getPatRecEventActionCode());
+                if (messageType.equals("ORM^O01") || messageType.equals("OMG^O19") || messageType.equals("OMI^O23")) {
+                    AuditInfoBuilder infoProcedure = new AuditInfoBuilder.Builder()
+                            .callingHost(connection.getHostname())
+                            .callingUserID(sendingApplicationWithFacility)
+                            .calledUserID(receivingApplicationWithFacility)
+                            .studyUIDAccNumDate(archiveHL7Message.getStudyAttrs())
+                            .patID(pid.getField(3, null), getArchiveDevice())
+                            .patName(pid.getField(5, null), getArchiveDevice())
+                            .outcome(outcome(exception))
+                            .build();
+                    writeSpoolFile(
+                            AuditServiceUtils.EventType.forProcedure(archiveHL7Message.getProcRecEventActionCode()),
+                            infoProcedure,
+                            hl7Message.data(),
+                            hl7ResponseMessage.data());
+                }
+            }
+            AuditInfoBuilder info = new AuditInfoBuilder.Builder()
+                    .callingHost(connection.getHostname())
+                    .callingUserID(sendingApplicationWithFacility)
+                    .calledUserID(receivingApplicationWithFacility)
+                    .patID(pid.getField(3, null), getArchiveDevice())
+                    .patName(pid.getField(5, null), getArchiveDevice())
+                    .outcome(outcome(exception))
+                    .build();
+            writeSpoolFile(eventType, info, hl7Message.data(), hl7ResponseMessage.data());
+
+            if (mrg != null && eventType != AuditServiceUtils.EventType.PAT___READ) {
+                AuditInfoBuilder prev = new AuditInfoBuilder.Builder()
+                        .callingHost(connection.getHostname())
+                        .callingUserID(sendingApplicationWithFacility)
+                        .calledUserID(receivingApplicationWithFacility)
+                        .patID(mrg.getField(1, null), getArchiveDevice())
+                        .patName(mrg.getField(7, null), getArchiveDevice())
+                        .outcome(outcome(exception))
+                        .build();
+                writeSpoolFile(AuditServiceUtils.EventType.PAT_DELETE, prev, hl7Message.data(), hl7ResponseMessage.data());
+            }
+        }
+    }
+
     void spoolPatientRecord(PatientMgtContext ctx) {
+        boolean isOutgoingHL7 = ctx.isOutgoingHL7();
+        if (ctx.getUnparsedHL7Message() != null && !isOutgoingHL7)
+            return;
+
         try {
-            UnparsedHL7Message hl7msg = ctx.getUnparsedHL7Message();
             String[] callingCalledUserIDs = callingCalledUserIDsForPatientRecord(ctx);
-            boolean isOutgoingHL7 = ctx.isOutgoingHL7();
             AuditInfoBuilder auditInfoBuilder = isOutgoingHL7
                     ? outgoingHL7PatientRecord(ctx, callingCalledUserIDs) : internalPatientRecord(ctx, callingCalledUserIDs);
             AuditServiceUtils.EventType eventType = AuditServiceUtils.EventType.forHL7(ctx);
-            byte[] data = hl7msg != null ? hl7msg.data() : null;
-            if (data != null)
-                writeSpoolFile(eventType, auditInfoBuilder, data, ctx.getAck());
-            else
-                writeSpoolFile(eventType, auditInfoBuilder);
+            writeSpoolFile(eventType, auditInfoBuilder);
             if (ctx.getPreviousAttributes() != null) {
                 AuditInfoBuilder prevAuditInfoBuilder = isOutgoingHL7
                         ? outgoingHL7PreviousPatientRecord(ctx, callingCalledUserIDs)
                         : internalPreviousPatientRecord(ctx, callingCalledUserIDs);
                 AuditServiceUtils.EventType prevEventType = AuditServiceUtils.EventType.PAT_DELETE;
-                if (data != null)
-                    writeSpoolFile(prevEventType, prevAuditInfoBuilder, data, ctx.getAck());
-                else
-                    writeSpoolFile(prevEventType, prevAuditInfoBuilder);
+                writeSpoolFile(prevEventType, prevAuditInfoBuilder);
             }
         } catch (Exception e) {
             LOG.warn("Failed to spool Patient Record : " + e);
@@ -1317,19 +1380,14 @@ public class AuditService {
         String[] callingCalledUserIDs = new String[2];
         HttpServletRequestInfo httpRequest = ctx.getHttpServletRequestInfo();
         Association association = ctx.getAssociation();
-        UnparsedHL7Message hl7msg = ctx.getUnparsedHL7Message();
         callingCalledUserIDs[0] = httpRequest != null
                         ? httpRequest.requesterUserID
-                        : hl7msg != null
-                            ? hl7msg.msh().getSendingApplicationWithFacility()
-                            : association != null
-                                ? association.getCallingAET() : null;
+                        : association != null
+                            ? association.getCallingAET() : null;
         callingCalledUserIDs[1] = httpRequest != null
                         ? httpRequest.requestURI
-                        : hl7msg != null
-                            ? hl7msg.msh().getReceivingApplicationWithFacility()
-                            : association != null
-                                ? association.getCalledAET() : null;
+                        : association != null
+                            ? association.getCalledAET() : null;
         return callingCalledUserIDs;
     }
 
@@ -1463,17 +1521,14 @@ public class AuditService {
     }
 
     void spoolProcedureRecord(ProcedureContext ctx) {
+        if (ctx.getUnparsedHL7Message() != null)
+            return;
         try {
-            UnparsedHL7Message hl7msg = ctx.getUnparsedHL7Message();
             AuditInfoBuilder info = ctx.getHttpRequest() != null
                     ? buildAuditInfoFORRestful(ctx)
-                    : hl7msg != null
-                    ? buildAuditInfoFORHL7(ctx, hl7msg.msh()) : buildAuditInfoForAssociation(ctx);
+                    : buildAuditInfoForAssociation(ctx);
             AuditServiceUtils.EventType eventType = AuditServiceUtils.EventType.forProcedure(ctx.getEventActionCode());
-            if (hl7msg != null)
-                writeSpoolFile(eventType, info, hl7msg.data(), ByteUtils.EMPTY_BYTES);
-            else
-                writeSpoolFile(eventType, info);
+            writeSpoolFile(eventType, info);
         } catch (Exception e) {
             LOG.warn("Failed to spool Procedure Record : " + e);
         }
