@@ -63,7 +63,6 @@ import javax.naming.NamingException;
 import javax.naming.directory.*;
 import javax.naming.directory.Attributes;
 import java.net.URI;
-import java.security.cert.CertificateException;
 import java.time.LocalTime;
 import java.time.Period;
 import java.util.*;
@@ -97,7 +96,6 @@ class LdapArchiveConfiguration extends LdapDicomConfigurationExtension {
         LdapUtils.storeNotNullOrDef(ldapObj, attrs, "dcmOverwritePolicy", ext.getOverwritePolicy(), OverwritePolicy.NEVER);
         LdapUtils.storeNotNullOrDef(ldapObj, attrs, "dcmBulkDataSpoolDirectory",
                 ext.getBulkDataSpoolDirectory(), ArchiveDeviceExtension.JBOSS_SERVER_TEMP_DIR);
-        LdapUtils.storeNotNullOrDef(ldapObj, attrs, "dcmQueryRetrieveViewID", ext.getQueryRetrieveViewID(), null);
         LdapUtils.storeNotDef(ldapObj, attrs, "dcmPersonNameComponentOrderInsensitiveMatching",
                 ext.isPersonNameComponentOrderInsensitiveMatching(), false);
         LdapUtils.storeNotDef(ldapObj, attrs, "dcmSendPendingCGet", ext.isSendPendingCGet(), false);
@@ -258,7 +256,7 @@ class LdapArchiveConfiguration extends LdapDicomConfigurationExtension {
     }
 
     @Override
-    protected void loadFrom(Device device, Attributes attrs) throws NamingException, CertificateException {
+    protected void loadFrom(Device device, Attributes attrs) throws NamingException {
         if (!LdapUtils.hasObjectClass(attrs, "dcmArchiveDevice"))
             return;
 
@@ -277,7 +275,6 @@ class LdapArchiveConfiguration extends LdapDicomConfigurationExtension {
         ext.setOverwritePolicy(LdapUtils.enumValue(OverwritePolicy.class, attrs.get("dcmOverwritePolicy"), OverwritePolicy.NEVER));
         ext.setBulkDataSpoolDirectory(
                 LdapUtils.stringValue(attrs.get("dcmBulkDataSpoolDirectory"), ArchiveDeviceExtension.JBOSS_SERVER_TEMP_DIR));
-        ext.setQueryRetrieveViewID(LdapUtils.stringValue(attrs.get("dcmQueryRetrieveViewID"), null));
         ext.setPersonNameComponentOrderInsensitiveMatching(
                 LdapUtils.booleanValue(attrs.get("dcmPersonNameComponentOrderInsensitiveMatching"), false));
         ext.setSendPendingCGet(LdapUtils.booleanValue(attrs.get("dcmSendPendingCGet"), false));
@@ -408,7 +405,7 @@ class LdapArchiveConfiguration extends LdapDicomConfigurationExtension {
         ext.setStorageVerificationPollingInterval(
                 toDuration(attrs.get("dcmStorageVerificationPollingInterval"), null));
         ext.setStorageVerificationSchedules(
-                toScheduleExpressions(LdapUtils.stringArray(attrs.get("dcmStorageVerificationSchedule"))));
+                ScheduleExpression.valuesOf(LdapUtils.stringArray(attrs.get("dcmStorageVerificationSchedule"))));
         ext.setStorageVerificationFetchSize(LdapUtils.intValue(attrs.get("dcmStorageVerificationFetchSize"), 100));
         ext.setHl7TrackChangedPatientID(LdapUtils.booleanValue(attrs.get("hl7TrackChangedPatientID"), true));
         ext.setInvokeImageDisplayPatientURL(LdapUtils.stringValue(attrs.get("dcmInvokeImageDisplayPatientURL"), null));
@@ -436,7 +433,8 @@ class LdapArchiveConfiguration extends LdapDicomConfigurationExtension {
         ext.setCompressionAETitle(LdapUtils.stringValue(attrs.get("dcmCompressionAETitle"), null));
         ext.setCompressionPollingInterval(toDuration(attrs.get("dcmCompressionPollingInterval"), null));
         ext.setCompressionFetchSize(LdapUtils.intValue(attrs.get("dcmCompressionFetchSize"), 100));
-        ext.setCompressionSchedules(toScheduleExpressions(LdapUtils.stringArray(attrs.get("dcmCompressionSchedule"))));
+        ext.setCompressionSchedules(
+                ScheduleExpression.valuesOf(LdapUtils.stringArray(attrs.get("dcmCompressionSchedule"))));
         ext.setCompressionThreads(LdapUtils.intValue(attrs.get("dcmCompressionThreads"), 1));
         ext.setDiffTaskProgressUpdateInterval(toDuration(attrs.get("dcmDiffTaskProgressUpdateInterval"), null));
     }
@@ -487,7 +485,6 @@ class LdapArchiveConfiguration extends LdapDicomConfigurationExtension {
                 aa.getBulkDataSpoolDirectory(),
                 bb.getBulkDataSpoolDirectory(),
                 ArchiveDeviceExtension.JBOSS_SERVER_TEMP_DIR);
-        LdapUtils.storeDiffObject(ldapObj, mods, "dcmQueryRetrieveViewID", aa.getQueryRetrieveViewID(), bb.getQueryRetrieveViewID(), null);
         LdapUtils.storeDiff(ldapObj, mods, "dcmPersonNameComponentOrderInsensitiveMatching",
                 aa.isPersonNameComponentOrderInsensitiveMatching(),
                 bb.isPersonNameComponentOrderInsensitiveMatching(),
@@ -777,6 +774,7 @@ class LdapArchiveConfiguration extends LdapDicomConfigurationExtension {
         storeQueueDescriptors(diffs, deviceDN, arcDev);
         storeExporterDescriptors(diffs, deviceDN, arcDev);
         storeExportRules(diffs, arcDev.getExportRules(), deviceDN);
+        storePrefetchRules(diffs, arcDev.getPrefetchRules(), deviceDN);
         storeCompressionRules(diffs, arcDev.getCompressionRules(), deviceDN);
         storeStoreAccessControlIDRules(diffs, arcDev.getStoreAccessControlIDRules(), deviceDN);
         storeAttributeCoercions(diffs, arcDev.getAttributeCoercions(), deviceDN);
@@ -794,7 +792,7 @@ class LdapArchiveConfiguration extends LdapDicomConfigurationExtension {
 
     @Override
     protected void loadChilds(Device device, String deviceDN)
-            throws NamingException, ConfigurationException {
+            throws NamingException {
         ArchiveDeviceExtension arcdev = device.getDeviceExtension(ArchiveDeviceExtension.class);
         if (arcdev == null)
             return;
@@ -804,6 +802,7 @@ class LdapArchiveConfiguration extends LdapDicomConfigurationExtension {
         loadQueueDescriptors(arcdev, deviceDN);
         loadExporterDescriptors(arcdev, deviceDN);
         loadExportRules(arcdev.getExportRules(), deviceDN);
+        loadPrefetchRules(arcdev.getPrefetchRules(), deviceDN);
         loadCompressionRules(arcdev.getCompressionRules(), deviceDN);
         loadStoreAccessControlIDRules(arcdev.getStoreAccessControlIDRules(), deviceDN);
         loadAttributeCoercions(arcdev.getAttributeCoercions(), deviceDN, device);
@@ -839,6 +838,7 @@ class LdapArchiveConfiguration extends LdapDicomConfigurationExtension {
         mergeQueueDescriptors(diffs, aa, bb, deviceDN);
         mergeExportDescriptors(diffs, aa, bb, deviceDN);
         mergeExportRules(diffs, aa.getExportRules(), bb.getExportRules(), deviceDN);
+        mergePrefetchRules(diffs, aa.getPrefetchRules(), bb.getPrefetchRules(), deviceDN);
         mergeCompressionRules(diffs, aa.getCompressionRules(), bb.getCompressionRules(), deviceDN);
         mergeStoreAccessControlIDRules(diffs, aa.getStoreAccessControlIDRules(), bb.getStoreAccessControlIDRules(), deviceDN);
         mergeAttributeCoercions(diffs, aa.getAttributeCoercions(), bb.getAttributeCoercions(), deviceDN);
@@ -1184,6 +1184,7 @@ class LdapArchiveConfiguration extends LdapDicomConfigurationExtension {
             return;
 
         storeExportRules(diffs, aeExt.getExportRules(), aeDN);
+        storePrefetchRules(diffs, aeExt.getPrefetchRules(), aeDN);
         storeCompressionRules(diffs, aeExt.getCompressionRules(), aeDN);
         storeStoreAccessControlIDRules(diffs, aeExt.getStoreAccessControlIDRules(), aeDN);
         storeAttributeCoercions(diffs, aeExt.getAttributeCoercions(), aeDN);
@@ -1192,12 +1193,13 @@ class LdapArchiveConfiguration extends LdapDicomConfigurationExtension {
     }
 
     @Override
-    protected void loadChilds(ApplicationEntity ae, String aeDN) throws NamingException, ConfigurationException {
+    protected void loadChilds(ApplicationEntity ae, String aeDN) throws NamingException {
         ArchiveAEExtension aeExt = ae.getAEExtension(ArchiveAEExtension.class);
         if (aeExt == null)
             return;
 
         loadExportRules(aeExt.getExportRules(), aeDN);
+        loadPrefetchRules(aeExt.getPrefetchRules(), aeDN);
         loadCompressionRules(aeExt.getCompressionRules(), aeDN);
         loadStoreAccessControlIDRules(aeExt.getStoreAccessControlIDRules(), aeDN);
         loadAttributeCoercions(aeExt.getAttributeCoercions(), aeDN, ae.getDevice());
@@ -1219,6 +1221,7 @@ class LdapArchiveConfiguration extends LdapDicomConfigurationExtension {
             bb = new ArchiveAEExtension();
 
         mergeExportRules(diffs, aa.getExportRules(), bb.getExportRules(), aeDN);
+        mergePrefetchRules(diffs, aa.getPrefetchRules(), bb.getPrefetchRules(), aeDN);
         mergeCompressionRules(diffs, aa.getCompressionRules(), bb.getCompressionRules(), aeDN);
         mergeStoreAccessControlIDRules(diffs, aa.getStoreAccessControlIDRules(), bb.getStoreAccessControlIDRules(), aeDN);
         mergeAttributeCoercions(diffs, aa.getAttributeCoercions(), bb.getAttributeCoercions(), aeDN);
@@ -1403,7 +1406,7 @@ class LdapArchiveConfiguration extends LdapDicomConfigurationExtension {
                 ConfigurationChanges.ModifiedObject ldapObj =
                         ConfigurationChanges.addModifiedObject(diffs, dn, ConfigurationChanges.ChangeType.U);
                 config.modifyAttributes(dn,
-                        storeDiffs(ldapObj, prevFilter, entry.getValue(), new ArrayList<ModificationItem>()));
+                        storeDiffs(ldapObj, prevFilter, entry.getValue(), new ArrayList<>()));
                 ConfigurationChanges.removeLastIfEmpty(diffs, ldapObj);
             }
         }
@@ -1439,7 +1442,7 @@ class LdapArchiveConfiguration extends LdapDicomConfigurationExtension {
                     ConfigurationChanges.ModifiedObject ldapObj =
                             ConfigurationChanges.addModifiedObject(diffs, dn, ConfigurationChanges.ChangeType.U);
                     config.modifyAttributes(dn,
-                            storeDiffs(ldapObj, prevAttributeSet, attributeSet, new ArrayList<ModificationItem>()));
+                            storeDiffs(ldapObj, prevAttributeSet, attributeSet, new ArrayList<>()));
                     ConfigurationChanges.removeLastIfEmpty(diffs, ldapObj);
                 }
             }
@@ -1468,7 +1471,7 @@ class LdapArchiveConfiguration extends LdapDicomConfigurationExtension {
             } else {
                 ConfigurationChanges.ModifiedObject ldapObj =
                         ConfigurationChanges.addModifiedObject(diffs, dn, ConfigurationChanges.ChangeType.U);
-                config.modifyAttributes(dn, storeDiffs(ldapObj, prevHL7OrderSPSStatus, entry.getValue(), new ArrayList<ModificationItem>()));
+                config.modifyAttributes(dn, storeDiffs(ldapObj, prevHL7OrderSPSStatus, entry.getValue(), new ArrayList<>()));
                 ConfigurationChanges.removeLastIfEmpty(diffs, ldapObj);
             }
         }
@@ -1751,7 +1754,7 @@ class LdapArchiveConfiguration extends LdapDicomConfigurationExtension {
                 ConfigurationChanges.ModifiedObject ldapObj =
                         ConfigurationChanges.addModifiedObject(diffs, dn, ConfigurationChanges.ChangeType.U);
                 config.modifyAttributes(dn,
-                        storeDiffs(ldapObj, prevDescriptor, descriptor, new ArrayList<ModificationItem>()));
+                        storeDiffs(ldapObj, prevDescriptor, descriptor, new ArrayList<>()));
                 ConfigurationChanges.removeLastIfEmpty(diffs, ldapObj);
             }
         }
@@ -1821,7 +1824,7 @@ class LdapArchiveConfiguration extends LdapDicomConfigurationExtension {
                 desc.setRetrieveLocationUID(LdapUtils.stringValue(attrs.get("dcmRetrieveLocationUID"), null));
                 desc.setInstanceAvailability(
                         LdapUtils.enumValue(Availability.class, attrs.get("dcmInstanceAvailability"), Availability.ONLINE));
-                desc.setSchedules(toScheduleExpressions(LdapUtils.stringArray(attrs.get("dcmSchedule"))));
+                desc.setSchedules(ScheduleExpression.valuesOf(LdapUtils.stringArray(attrs.get("dcmSchedule"))));
                 desc.setProperties(LdapUtils.stringArray(attrs.get("dcmProperty")));
                 desc.setPriority(LdapUtils.intValue(attrs.get("dcmExportPriority"), 4));
                 arcdev.addExporterDescriptor(desc);
@@ -1829,13 +1832,6 @@ class LdapArchiveConfiguration extends LdapDicomConfigurationExtension {
         } finally {
             LdapUtils.safeClose(ne);
         }
-    }
-
-    private ScheduleExpression[] toScheduleExpressions(String[] ss) {
-        ScheduleExpression[] schedules = new ScheduleExpression[ss.length];
-        for (int i = 0; i < ss.length; i++)
-            schedules[i] = ScheduleExpression.valueOf(ss[i]);
-        return schedules;
     }
 
     private void mergeExportDescriptors(ConfigurationChanges diffs, ArchiveDeviceExtension prev, ArchiveDeviceExtension arcDev, String deviceDN)
@@ -1862,7 +1858,7 @@ class LdapArchiveConfiguration extends LdapDicomConfigurationExtension {
                 ConfigurationChanges.ModifiedObject ldapObj =
                         ConfigurationChanges.addModifiedObject(diffs, dn, ConfigurationChanges.ChangeType.U);
                 config.modifyAttributes(dn,
-                        storeDiffs(ldapObj, prevDescriptor, descriptor, new ArrayList<ModificationItem>()));
+                        storeDiffs(ldapObj, prevDescriptor, descriptor, new ArrayList<>()));
                 ConfigurationChanges.removeLastIfEmpty(diffs, ldapObj);
             }
         }
@@ -1915,13 +1911,54 @@ class LdapArchiveConfiguration extends LdapDicomConfigurationExtension {
                 SearchResult sr = ne.next();
                 Attributes attrs = sr.getAttributes();
                 ExportRule rule = new ExportRule(LdapUtils.stringValue(attrs.get("cn"), null));
-                rule.setSchedules(toScheduleExpressions(LdapUtils.stringArray(attrs.get("dcmSchedule"))));
+                rule.setSchedules(ScheduleExpression.valuesOf(LdapUtils.stringArray(attrs.get("dcmSchedule"))));
                 rule.setConditions(new Conditions(LdapUtils.stringArray(attrs.get("dcmProperty"))));
                 rule.setExporterIDs(LdapUtils.stringArray(attrs.get("dcmExporterID")));
                 rule.setEntity(LdapUtils.enumValue(Entity.class, attrs.get("dcmEntity"), null));
                 rule.setExportDelay(toDuration(attrs.get("dcmDuration"), null));
                 rule.setExportPreviousEntity(LdapUtils.booleanValue(attrs.get("dcmExportPreviousEntity"), false));
                 exportRules.add(rule);
+            }
+        } finally {
+            LdapUtils.safeClose(ne);
+        }
+    }
+
+    private void storePrefetchRules(ConfigurationChanges diffs, Collection<PrefetchRule> prefetchRules, String parentDN)
+            throws NamingException {
+        for (PrefetchRule rule : prefetchRules) {
+            String dn = LdapUtils.dnOf("cn", rule.getCommonName(), parentDN);
+            ConfigurationChanges.ModifiedObject ldapObj =
+                    ConfigurationChanges.addModifiedObject(diffs, dn, ConfigurationChanges.ChangeType.C);
+            config.createSubcontext(dn, storeTo(ldapObj, rule, new BasicAttributes(true)));
+        }
+    }
+
+    private Attributes storeTo(ConfigurationChanges.ModifiedObject ldapObj, PrefetchRule rule, BasicAttributes attrs) {
+        attrs.put("objectclass", "dcmPrefetchRule");
+        attrs.put("cn", rule.getCommonName());
+        LdapUtils.storeNotEmpty(ldapObj, attrs, "dcmSchedule", rule.getSchedules());
+        LdapUtils.storeNotEmpty(ldapObj, attrs, "dcmProperty", toStrings(rule.getConditions().getMap()));
+        LdapUtils.storeNotEmpty(ldapObj, attrs, "dcmExporterID", rule.getExporterIDs());
+        LdapUtils.storeNotEmpty(ldapObj, attrs, "dcmEntitySelector", rule.getEntitySelectors());
+        LdapUtils.storeNotNullOrDef(ldapObj, attrs, "dcmDuration",
+                rule.getSuppressDuplicateExportInterval(), null);
+        return attrs;
+    }
+
+    private void loadPrefetchRules(Collection<PrefetchRule> prefetchRules, String parentDN) throws NamingException {
+        NamingEnumeration<SearchResult> ne = config.search(parentDN, "(objectclass=dcmPrefetchRule)");
+        try {
+            while (ne.hasMore()) {
+                SearchResult sr = ne.next();
+                Attributes attrs = sr.getAttributes();
+                PrefetchRule rule = new PrefetchRule(LdapUtils.stringValue(attrs.get("cn"), null));
+                rule.setSchedules(ScheduleExpression.valuesOf(LdapUtils.stringArray(attrs.get("dcmSchedule"))));
+                rule.setConditions(new Conditions(LdapUtils.stringArray(attrs.get("dcmProperty"))));
+                rule.setExporterIDs(LdapUtils.stringArray(attrs.get("dcmExporterID")));
+                rule.setEntitySelectors(EntitySelector.valuesOf(LdapUtils.stringArray(attrs.get("dcmEntitySelector"))));
+                rule.setSuppressDuplicateExportInterval(toDuration(attrs.get("dcmDuration"), null));
+                prefetchRules.add(rule);
             }
         } finally {
             LdapUtils.safeClose(ne);
@@ -1971,7 +2008,7 @@ class LdapArchiveConfiguration extends LdapDicomConfigurationExtension {
             } else {
                 ConfigurationChanges.ModifiedObject ldapObj =
                         ConfigurationChanges.addModifiedObject(diffs, dn, ConfigurationChanges.ChangeType.U);
-                config.modifyAttributes(dn, storeDiffs(ldapObj, prevRule, rule, new ArrayList<ModificationItem>()));
+                config.modifyAttributes(dn, storeDiffs(ldapObj, prevRule, rule, new ArrayList<>()));
                 ConfigurationChanges.removeLastIfEmpty(diffs, ldapObj);
             }
         }
@@ -1990,6 +2027,60 @@ class LdapArchiveConfiguration extends LdapDicomConfigurationExtension {
 
     private ExportRule findExportRuleByCN(Collection<ExportRule> rules, String cn) {
         for (ExportRule rule : rules)
+            if (rule.getCommonName().equals(cn))
+                return rule;
+        return null;
+    }
+
+    private void mergePrefetchRules(ConfigurationChanges diffs,
+                                    Collection<PrefetchRule> prevRules,
+                                    Collection<PrefetchRule> rules,
+                                    String parentDN)
+            throws NamingException {
+        for (PrefetchRule prevRule : prevRules) {
+            String cn = prevRule.getCommonName();
+            if (findPrefetchRuleByCN(rules, cn) == null) {
+                String dn = LdapUtils.dnOf("cn", cn, parentDN);
+                config.destroySubcontext(dn);
+                ConfigurationChanges.addModifiedObject(diffs, dn, ConfigurationChanges.ChangeType.D);
+            }
+        }
+        for (PrefetchRule rule : rules) {
+            String cn = rule.getCommonName();
+            String dn = LdapUtils.dnOf("cn", cn, parentDN);
+            PrefetchRule prevRule = findPrefetchRuleByCN(prevRules, cn);
+            if (prevRule == null) {
+                ConfigurationChanges.ModifiedObject ldapObj =
+                        ConfigurationChanges.addModifiedObject(diffs, dn, ConfigurationChanges.ChangeType.C);
+                config.createSubcontext(dn,
+                        storeTo(ConfigurationChanges.nullifyIfNotVerbose(diffs, ldapObj),
+                                rule, new BasicAttributes(true)));
+            } else {
+                ConfigurationChanges.ModifiedObject ldapObj =
+                        ConfigurationChanges.addModifiedObject(diffs, dn, ConfigurationChanges.ChangeType.U);
+                config.modifyAttributes(dn, storeDiffs(ldapObj, prevRule, rule, new ArrayList<>()));
+                ConfigurationChanges.removeLastIfEmpty(diffs, ldapObj);
+            }
+        }
+    }
+
+    private List<ModificationItem> storeDiffs(ConfigurationChanges.ModifiedObject ldapObj,
+                                              PrefetchRule prev,
+                                              PrefetchRule rule,
+                                              ArrayList<ModificationItem> mods) {
+        LdapUtils.storeDiff(ldapObj, mods, "dcmSchedule", prev.getSchedules(), rule.getSchedules());
+        storeDiffProperties(ldapObj, mods, "dcmProperty",
+                prev.getConditions().getMap(), rule.getConditions().getMap());
+        LdapUtils.storeDiff(ldapObj, mods, "dcmExporterID", prev.getExporterIDs(), rule.getExporterIDs());
+        LdapUtils.storeDiff(ldapObj, mods, "dcmEntitySelector",
+                prev.getEntitySelectors(), rule.getEntitySelectors());
+        LdapUtils.storeDiffObject(ldapObj, mods, "dcmDuration",
+                prev.getSuppressDuplicateExportInterval(), rule.getSuppressDuplicateExportInterval(), null);
+        return mods;
+    }
+
+    private PrefetchRule findPrefetchRuleByCN(Collection<PrefetchRule> rules, String cn) {
+        for (PrefetchRule rule : rules)
             if (rule.getCommonName().equals(cn))
                 return rule;
         return null;
@@ -2336,7 +2427,7 @@ class LdapArchiveConfiguration extends LdapDicomConfigurationExtension {
             } else {
                 ConfigurationChanges.ModifiedObject ldapObj =
                         ConfigurationChanges.addModifiedObject(diffs, dn, ConfigurationChanges.ChangeType.U);
-                config.modifyAttributes(dn, storeDiffs(ldapObj, prevRule, rule, new ArrayList<ModificationItem>()));
+                config.modifyAttributes(dn, storeDiffs(ldapObj, prevRule, rule, new ArrayList<>()));
                 ConfigurationChanges.removeLastIfEmpty(diffs, ldapObj);
             }
         }
@@ -2366,7 +2457,7 @@ class LdapArchiveConfiguration extends LdapDicomConfigurationExtension {
             } else {
                 ConfigurationChanges.ModifiedObject ldapObj =
                         ConfigurationChanges.addModifiedObject(diffs, dn, ConfigurationChanges.ChangeType.U);
-                config.modifyAttributes(dn, storeDiffs(ldapObj, prevRule, rule, new ArrayList<ModificationItem>()));
+                config.modifyAttributes(dn, storeDiffs(ldapObj, prevRule, rule, new ArrayList<>()));
                 ConfigurationChanges.removeLastIfEmpty(diffs, ldapObj);
             }
         }
@@ -2396,7 +2487,7 @@ class LdapArchiveConfiguration extends LdapDicomConfigurationExtension {
             } else {
                 ConfigurationChanges.ModifiedObject ldapObj =
                         ConfigurationChanges.addModifiedObject(diffs, dn, ConfigurationChanges.ChangeType.U);
-                config.modifyAttributes(dn, storeDiffs(ldapObj, prevPolicy, policy, new ArrayList<ModificationItem>()));
+                config.modifyAttributes(dn, storeDiffs(ldapObj, prevPolicy, policy, new ArrayList<>()));
                 ConfigurationChanges.removeLastIfEmpty(diffs, ldapObj);
             }
         }
@@ -2426,7 +2517,7 @@ class LdapArchiveConfiguration extends LdapDicomConfigurationExtension {
              } else {
                 ConfigurationChanges.ModifiedObject ldapObj =
                         ConfigurationChanges.addModifiedObject(diffs, dn, ConfigurationChanges.ChangeType.U);
-                config.modifyAttributes(dn, storeDiffs(ldapObj, prevRule, rule, new ArrayList<ModificationItem>()));
+                config.modifyAttributes(dn, storeDiffs(ldapObj, prevRule, rule, new ArrayList<>()));
                 ConfigurationChanges.removeLastIfEmpty(diffs, ldapObj);
             }
         }
@@ -2456,7 +2547,7 @@ class LdapArchiveConfiguration extends LdapDicomConfigurationExtension {
             } else {
                 ConfigurationChanges.ModifiedObject ldapObj =
                         ConfigurationChanges.addModifiedObject(diffs, dn, ConfigurationChanges.ChangeType.U);
-                config.modifyAttributes(dn, storeDiffs(ldapObj, prevStation, station, new ArrayList<ModificationItem>(), config));
+                config.modifyAttributes(dn, storeDiffs(ldapObj, prevStation, station, new ArrayList<>(), config));
                 ConfigurationChanges.removeLastIfEmpty(diffs, ldapObj);
             }
         }
@@ -2487,7 +2578,7 @@ class LdapArchiveConfiguration extends LdapDicomConfigurationExtension {
             } else {
                 ConfigurationChanges.ModifiedObject ldapObj =
                         ConfigurationChanges.addModifiedObject(diffs, dn, ConfigurationChanges.ChangeType.U);
-                config.modifyAttributes(dn, storeDiffs(ldapObj, prev, coercion, new ArrayList<ModificationItem>()));
+                config.modifyAttributes(dn, storeDiffs(ldapObj, prev, coercion, new ArrayList<>()));
                 ConfigurationChanges.removeLastIfEmpty(diffs, ldapObj);
             }
         }
@@ -2517,7 +2608,7 @@ class LdapArchiveConfiguration extends LdapDicomConfigurationExtension {
             } else {
                 ConfigurationChanges.ModifiedObject ldapObj =
                         ConfigurationChanges.addModifiedObject(diffs, dn, ConfigurationChanges.ChangeType.U);
-                config.modifyAttributes(dn, storeDiffs(ldapObj, prevRule, rule, new ArrayList<ModificationItem>()));
+                config.modifyAttributes(dn, storeDiffs(ldapObj, prevRule, rule, new ArrayList<>()));
                 ConfigurationChanges.removeLastIfEmpty(diffs, ldapObj);
             }
         }
@@ -2547,7 +2638,7 @@ class LdapArchiveConfiguration extends LdapDicomConfigurationExtension {
             } else {
                 ConfigurationChanges.ModifiedObject ldapObj =
                         ConfigurationChanges.addModifiedObject(diffs, dn, ConfigurationChanges.ChangeType.U);
-                config.modifyAttributes(dn, storeDiffs(ldapObj, prevKeycloakServer, keycloakServer, new ArrayList<ModificationItem>()));
+                config.modifyAttributes(dn, storeDiffs(ldapObj, prevKeycloakServer, keycloakServer, new ArrayList<>()));
                 ConfigurationChanges.removeLastIfEmpty(diffs, ldapObj);
             }
         }
@@ -2752,7 +2843,7 @@ class LdapArchiveConfiguration extends LdapDicomConfigurationExtension {
             } else{
                 ConfigurationChanges.ModifiedObject ldapObj =
                         ConfigurationChanges.addModifiedObject(diffs, dn, ConfigurationChanges.ChangeType.U);
-                config.modifyAttributes(dn, storeDiffs(ldapObj, entryOld, entryNew, new ArrayList<ModificationItem>()));
+                config.modifyAttributes(dn, storeDiffs(ldapObj, entryOld, entryNew, new ArrayList<>()));
                 ConfigurationChanges.removeLastIfEmpty(diffs, ldapObj);
             }
         }
@@ -2810,7 +2901,7 @@ class LdapArchiveConfiguration extends LdapDicomConfigurationExtension {
     }
 
     private void loadAttributeCoercions(Collection<ArchiveAttributeCoercion> coercions, String parentDN, Device device)
-            throws NamingException, ConfigurationException {
+            throws NamingException {
         NamingEnumeration<SearchResult> ne = config.search(parentDN, "(objectclass=dcmArchiveAttributeCoercion)");
         try {
             while (ne.hasMore()) {
@@ -3015,7 +3106,7 @@ class LdapArchiveConfiguration extends LdapDicomConfigurationExtension {
             } else {
                 ConfigurationChanges.ModifiedObject ldapObj =
                         ConfigurationChanges.addModifiedObject(diffs, dn, ConfigurationChanges.ChangeType.U);
-                config.modifyAttributes(dn, storeDiffs(ldapObj, entryOld, entryNew, new ArrayList<ModificationItem>()));
+                config.modifyAttributes(dn, storeDiffs(ldapObj, entryOld, entryNew, new ArrayList<>()));
                 ConfigurationChanges.removeLastIfEmpty(diffs, ldapObj);
             }
         }
@@ -3043,7 +3134,7 @@ class LdapArchiveConfiguration extends LdapDicomConfigurationExtension {
             } else{
                 ConfigurationChanges.ModifiedObject ldapObj =
                         ConfigurationChanges.addModifiedObject(diffs, dn, ConfigurationChanges.ChangeType.U);
-                config.modifyAttributes(dn, storeDiffs(ldapObj, entryOld, entryNew, new ArrayList<ModificationItem>()));
+                config.modifyAttributes(dn, storeDiffs(ldapObj, entryOld, entryNew, new ArrayList<>()));
                 ConfigurationChanges.removeLastIfEmpty(diffs, ldapObj);
             }
         }

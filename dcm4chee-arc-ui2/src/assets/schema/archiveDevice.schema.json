@@ -4,7 +4,6 @@
   "type": "object",
   "required": [
     "dcmFuzzyAlgorithmClass",
-    "dcmQueryRetrieveViewID",
     "dcmSeriesMetadataFetchSize",
     "dcmPurgeInstanceRecords",
     "dcmPurgeInstanceRecordsFetchSize",
@@ -126,12 +125,6 @@
       "default" : 100,
       "minimum": 0,
       "exclusiveMinimum": true
-    },
-    "dcmQueryRetrieveViewID": {
-      "title": "Query/Retrieve View ID",
-      "description": "Query/Retrieve View Identifier. May be overwritten by configured values for particular Archive Network AEs.",
-      "type": "string",
-      "format": "dcmQueryRetrieveViewID"
     },
     "dcmOverwritePolicy": {
       "title": "Overwrite Policy",
@@ -1094,6 +1087,15 @@
       "titleKey":"{cn}",
       "items" : {
         "$ref": "exportRule.schema.json"
+      }
+    },
+    "dcmPrefetchRule": {
+      "title": "Prefetch Rule",
+      "description": "Prefetch Rules applied to DICOM objects received by any AE. May be supplemented by configured Prefetch Rules for particular Archive Network AEs.",
+      "type": "array",
+      "titleKey":"{cn}",
+      "items" : {
+        "$ref": "prefetchRule.schema.json"
       }
     },
     "dcmRSForwardRule": {
