@@ -41,64 +41,63 @@
 
 package org.dcm4chee.arc.conf;
 
-import org.dcm4che3.data.Attributes;
-import org.dcm4che3.data.Tag;
-import org.dcm4che3.data.VR;
+import org.dcm4che3.hl7.HL7Message;
+import org.dcm4che3.hl7.HL7Segment;
+import org.dcm4che3.net.hl7.UnparsedHL7Message;
 import org.dcm4che3.util.StringUtils;
-import org.dcm4che3.util.TagUtils;
 
 /**
  * @author Gunter Zeilinger <gunterze@gmail.com>
  * @since Sep 2018
  */
-public class EntitySelector {
-    private final String value;
-    private final Attributes keys = new Attributes();
-    private final int numberOfPriors;
+public class HL7Fields {
+    private final UnparsedHL7Message msg;
+    private final String defCharset;
+    private volatile HL7Message hl7Message;
 
-    public static EntitySelector[] valuesOf(String... ss) {
-        EntitySelector[] selectors = new EntitySelector[ss.length];
-        for (int i = 0; i < ss.length; i++)
-            selectors[i] = new EntitySelector(ss[i]);
-        return selectors;
+    public HL7Fields(UnparsedHL7Message msg, String defCharset) {
+        this.msg = msg;
+        this.defCharset = defCharset;
     }
 
-    public EntitySelector(String value) {
-        this.numberOfPriors = parseKeys(value);
-        this.value = value;
-    }
+    public String get(String field, String defVal) {
+        if (field.length() < 5 || field.charAt(3) != '-')
+            throw new IllegalArgumentException(field);
 
-    @Override
-    public String toString() {
-        return value;
-    }
+        String[] ss = StringUtils.split(field.substring(4), '.');
+        if (ss.length > 3)
+            throw new IllegalArgumentException(field);
 
-    private int parseKeys(String queryParams) {
-        AttributesBuilder builder = new AttributesBuilder(keys);
-        int priors = -1;
-        for (String queryParam : StringUtils.split(queryParams, '&')) {
-            String[] keyValue = StringUtils.split(queryParam, '=');
-            if (keyValue.length != 2)
-                throw new IllegalArgumentException(queryParam);
+        int[] is = new int[ss.length];
+        try {
+            for (int i = 0; i < ss.length; i++) {
+                is[i] = Integer.parseUnsignedInt(ss[i]);
+            }
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException(field);
+        }
+        HL7Segment seg;
+        if (field.startsWith("MSH")) {
+            seg = msg.msh();
+            is[0]--;
+        } else {
+            HL7Message hl7Message = this.hl7Message;
+            if (hl7Message == null) {
+                this.hl7Message = hl7Message = HL7Message.parse(msg.data(), defCharset);
+            }
+            seg = hl7Message.getSegment(field.substring(0, 3));
+        }
+        if (seg == null)
+            return defVal;
 
-            try {
-                if (keyValue[0].equals("priors")) {
-                    priors = Integer.parseInt(keyValue[1]);
-                } else {
-                    builder.setString(TagUtils.parseTagPath(keyValue[0]), keyValue[1]);
-                }
-            } catch (IllegalArgumentException e) {
-                throw new IllegalArgumentException(queryParam);
+        String val = seg.getField(is[0], "");
+        if (is.length > 1) {
+            val = StringUtils.cut(val, is[1], seg.getComponentSeparator());
+            if (is.length > 2) {
+                val = StringUtils.cut(val, is[2], seg.getSubcomponentSeparator());
             }
         }
-        return priors;
+        return val.isEmpty() ? defVal : val;
     }
 
-    public Attributes getQueryKeys() {
-        return keys;
-    }
-
-    public int getNumberOfPriors() {
-        return numberOfPriors;
-    }
 }
