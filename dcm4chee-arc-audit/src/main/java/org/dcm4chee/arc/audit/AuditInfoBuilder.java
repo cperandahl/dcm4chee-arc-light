@@ -156,6 +156,14 @@ class AuditInfoBuilder {
             studyDate = attrs.getString(Tag.StudyDate);
             return this;
         }
+        Builder studyIUID(String studyIUID) {
+            studyUID = studyIUID;
+            return this;
+        }
+        Builder accNum(String acc) {
+            accNum = acc;
+            return this;
+        }
         Builder outcome(String val) {
             outcome = val;
             return this;

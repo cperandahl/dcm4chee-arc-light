@@ -105,7 +105,7 @@ public class HL7SenderMDB implements MessageListener {
         if (queueManager.onProcessingStart(msgID) == null)
             return;
         try {
-            UnparsedHL7Message hl7msg = new ArchiveHL7Message((byte[]) ((ObjectMessage) msg).getObject());
+            ArchiveHL7Message hl7Msg = new ArchiveHL7Message((byte[]) ((ObjectMessage) msg).getObject());
             String messageType = msg.getStringProperty("MessageType");
             HL7Application sender = getSendingHl7Application(msg.getStringProperty("SendingApplication"),
                     msg.getStringProperty("SendingFacility"));
@@ -115,8 +115,8 @@ public class HL7SenderMDB implements MessageListener {
                     msg.getStringProperty("ReceivingFacility"),
                     messageType,
                     msg.getStringProperty("MessageControlID"),
-                    hl7msg);
-            outgoingHL7Audit(msg, hl7msg.data(), messageType, rsp.data());
+                    hl7Msg);
+            outgoingHL7Audit(msg, hl7Msg.data(), messageType, rsp.data());
             queueManager.onProcessingSuccessful(msgID, toOutcome(rsp.data(), sender));
         } catch (Throwable e) {
             LOG.warn("Failed to process {}", msg, e);
